@@ -5,6 +5,7 @@
 #include <iostream>
 
 int main() {
+    std::cout << ">>> ESTOU EXECUTANDO O CODIGO MODIFICADO <<<" << std::endl;
     int width = 500;
     int height = 500;
     ImageRGB image(width, height);
