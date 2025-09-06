@@ -1,94 +1,193 @@
 #ifndef RASTERIZATION_H
 #define RASTERIZATION_H
 
-#include <vector>
-#include <cmath>
 #include <algorithm>
-#include <limits>
-#include "Image.h"
+#include <cmath>
 #include "vec.h"
 
+//////////////////////////////////////////////////////////////////////////////
+
 struct Pixel{
-    int x, y;
+	int x, y;
 };
 
 inline Pixel toPixel(vec2 u){
-    return { (int)round(u[0]), (int)round(u[1]) };
+	return { (int)round(u[0]), (int)round(u[1]) };
 }
 
 inline vec2 toVec2(Pixel p){
-    return {(float)p.x, (float)p.y};
+	return {(float)p.x, (float)p.y};
 }
 
-// Funções helper para ignorar NAN, necessárias para o scanline.
-inline float nan_min(float a, float b) {
-    if (std::isnan(a)) return b;
-    if (std::isnan(b)) return a;
-    return std::min(a, b);
+//////////////////////////////////////////////////////////////////////////////
+
+template<class Line>
+std::vector<Pixel> rasterizeLine(const Line& P){
+	//return simple(P[0], P[1]);
+
+	return dda(P[0], P[1]);
+
+	//return bresenham(toPixel(P[0]), toPixel(P[1]));
 }
 
-inline float nan_max(float a, float b) {
-    if (std::isnan(a)) return b;
-    if (std::isnan(b)) return a;
-    return std::max(a, b);
+//////////////////////////////////////////////////////////////////////////////
+
+inline std::vector<Pixel> simple(vec2 A, vec2 B){
+	std::vector<Pixel> out;
+	vec2 d = B - A;
+	float m = d[1]/d[0];
+	float b = A[1] - m*A[0];
+
+	int x0 = (int)roundf(A[0]);
+	int x1 = (int)roundf(B[0]);
+
+	for(int x = x0; x <= x1; x++){
+		int y = (int)roundf(m*x + b);
+		out.push_back({x, y});
+	}
+	return out;
 }
 
-// Versão FINALMENTE CORRIGIDA da função intersection
-inline float intersection(const vec2& A, const vec2& B, int ys_int) {
-    const float epsilon = 1e-6f;
-    float ys = static_cast<float>(ys_int);
+//////////////////////////////////////////////////////////////////////////////
 
-    float y_min = std::min(A[1], B[1]);
-    float y_max = std::max(A[1], B[1]);
+inline std::vector<Pixel> dda(vec2 A, vec2 B){
+	vec2 dif = B - A;
+	float delta = std::max(fabs(dif[0]), fabs(dif[1]));
 
-    // Caso 1: A linha de varredura está fora dos limites verticais da aresta.
-    if (ys < y_min - epsilon || ys > y_max + epsilon) {
-        return std::numeric_limits<float>::quiet_NaN();
-    }
+	vec2 d = (1/delta)*dif;
+	vec2 p = A;
 
-    // Caso 2: Aresta horizontal.
-    if (std::abs(A[1] - B[1]) < epsilon) {
-        // O teste espera a coordenada x do primeiro ponto passado como parâmetro.
-        // Isso permite ao scanline obter os dois pontos da aresta horizontal
-        // (um da aresta AB e outro da BC, por exemplo).
-        return A[0];
-    }
-
-    // Caso 3: Interpolação Linear para o caso geral.
-    float t = (ys - A[1]) / (B[1] - A[1]);
-    return A[0] + t * (B[0] - A[0]);
+	std::vector<Pixel> out;
+	for(int i = 0; i <= delta; i++){
+		out.push_back(toPixel(p));
+		p = p + d;
+	}
+	return out;
 }
 
+//////////////////////////////////////////////////////////////////////////////
 
-// A função scanline usa a intersection corrigida.
-template<class Tri>
-std::vector<Pixel> scanline(const Tri& P){
-    std::vector<Pixel> out;
-    vec2 A = P[0], B = P[1], C = P[2];
-    
-    int ymin = static_cast<int>(ceil(std::min({A[1], B[1], C[1]})));
-    int ymax = static_cast<int>(floor(std::max({A[1], B[1], C[1]})));
-    
-    for (int ys = ymin; ys <= ymax; ++ys) {
-        float iAB = intersection(A, B, ys);
-        float iBC = intersection(B, C, ys);
-        float iCA = intersection(C, A, ys);
-        
-        float xmin_f = nan_min(iAB, nan_min(iBC, iCA));
-        float xmax_f = nan_max(iAB, nan_max(iBC, iCA));
-        
-        if(std::isnan(xmin_f) || std::isnan(xmax_f)) continue;
-            
-        for (int x = static_cast<int>(ceil(xmin_f)); x <= static_cast<int>(floor(xmax_f)); ++x) {
-            out.push_back({x, ys});
-        }
-    }
-    return out;
+inline std::vector<Pixel> bresenham_base(Pixel p0, Pixel p1){
+	std::vector<Pixel> out;
+	int dx = p1.x - p0.x;
+	int dy = p1.y - p0.y;
+	int D = 2*dy - dx; 
+	int y = p0.y;
+	for(int x = p0.x; x <= p1.x; x++){
+		out.push_back({x, y});
+		if(D > 0){
+			y++;
+			D -= 2*dx;
+		}
+		D += 2*dy;
+	}
+	return out;
 }
+
+inline std::vector<Pixel> bresenham(Pixel p0, Pixel p1){
+	if(p0.x > p1.x)
+		std::swap(p0, p1);
+
+	bool mirrorV = p1.y < p0.y;
+	if(mirrorV)
+		p1.y = 2*p0.y - p1.y;
+
+	bool flip = (p1.x - p0.x) < (p1.y - p0.y);
+	if(flip){
+		std::swap(p0.x, p0.y);
+		std::swap(p1.x, p1.y);
+	}
+
+	std::vector<Pixel> out = bresenham_base(p0, p1);
+
+	if(flip){
+		for(Pixel& p: out)
+			std::swap(p.x, p.y);
+		std::swap(p0.x, p0.y);
+	}
+
+	if(mirrorV){
+		for(Pixel& p: out)
+			p.y = 2*p0.y - p.y;
+	}
+	return out;
+}
+
+//////////////////////////////////////////////////////////////////////////////
 
 template<class Tri>
 std::vector<Pixel> rasterizeTriangle(const Tri& P){
-    return scanline(P);
+	return simple_rasterize_triangle(P);
+	//return scanline(P);
+}
+
+template<class Tri>
+std::vector<Pixel> simple_rasterize_triangle(const Tri& P){
+	vec2 A = P[0];
+	vec2 B = P[1];
+	vec2 C = P[2];
+
+	int xmin =  ceil(std::min({A[0], B[0], C[0]}));
+	int xmax = floor(std::max({A[0], B[0], C[0]}));
+	int ymin =  ceil(std::min({A[1], B[1], C[1]}));
+	int ymax = floor(std::max({A[1], B[1], C[1]}));
+
+	std::vector<Pixel> out;
+	Pixel p;
+	for(p.y = ymin; p.y <= ymax; p.y++)
+		for(p.x = xmin; p.x <= xmax; p.x++)
+			if(is_inside(toVec2(p), P))
+				out.push_back(p);
+	return out;
+}
+
+inline float intersection(vec2 A, vec2 B, int y){
+
+	float x = (((B[0] - A[0]) * (y - A[1])) / (B[1] - A[1])) + A[0];
+
+	if ((y < B[1] && y < A[1]) || (y > B[1] && y > A[1]))
+	{
+		return NAN;
+	}
+	else if (y == B[1] && y == A[1])
+	{
+		return A[0];
+	}
+	else
+	{
+		return x;
+	}
+}
+
+template<class Tri>
+std::vector<Pixel> scanline(const Tri& P){
+	vec2 A = P[0];
+	vec2 B = P[1];
+	vec2 C = P[2];
+
+	int ymin =  (int)ceilf(fmin(fmin(A[1], B[1]), C[1]));
+	int ymax = (int)floorf(fmax(fmax(A[1], B[1]), C[1]));
+	float xmax, xmin;
+
+	std::vector<Pixel> out;
+	Pixel p;
+
+	for (p.y = ymin; p.y <= ymax; p.y++)
+	{
+		xmax = fmax(fmax(intersection(A, B, p.y), intersection(B, C, p.y)), intersection(C, A, p.y));
+		xmin = fmin(fmin(intersection(A, B, p.y), intersection(B, C, p.y)), intersection(C, A, p.y));
+
+		int xi = (int)ceilf(xmin);
+		int xf = (int)floorf(xmax);
+		
+		for (p.x = xi; p.x <= xf; p.x++)
+		{
+			out.push_back(p);
+		}
+		
+	}
+	
+	return out;
 }
 
 #endif
