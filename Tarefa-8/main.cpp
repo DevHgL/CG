@@ -1,6 +1,7 @@
 #include "Image.h"
 #include "Render2D_v1.h"
 #include "polygon_triangulation.h"
+#include "transforms2d.h"
 #include <vector>
 #include <cmath>
 
@@ -37,30 +38,29 @@ int main(){
     ImageRGB I(900, 600); // não quadrada
     I.fill(white);
 
-    // Composição: repetir a mesma estrela em uma grade
-    const int rows = 3;
-    const int cols = 5;
-    const float tileScale = 0.28f; // escala por estrela para caber na grade
+    // Composição: círculo de estrelas rotacionadas
+    const int count = 12;         // número de estrelas no anel
+    const float ringR = 0.65f;    // raio do anel
+    const float starScale = 0.25f;// escala uniforme de cada estrela
 
-    for(int rI = 0; rI < rows; ++rI){
-        for(int cI = 0; cI < cols; ++cI){
-            // Centros espaçados uniformemente em [-0.9, 0.9]
-            float cx = (cols == 1) ? 0.0f : -0.9f + 1.8f * (float)cI/(float)(cols-1);
-            float cy = (rows == 1) ? 0.0f :  0.9f - 1.8f * (float)rI/(float)(rows-1);
+    for(int i = 0; i < count; ++i){
+        float ang = i * 2.0f * M_PI / count;
+        vec2 c = { ringR * cosf(ang), ringR * sinf(ang) };
 
-            // Gera uma cópia transformada (escala uniforme + translação)
-            std::vector<vec2> V = Q;
-            for(auto& p: V){
-                vec2 u = { p[0]*tileScale, p[1]*tileScale };
-                p = { u[0] + cx, u[1] + cy };
-            }
+        // M = T(c) * R(ang) * S (estrela aponta para fora do círculo)
+        mat3 S = scale(starScale, starScale);
+        mat3 Rz = rotate_2d(ang);
+        mat3 Tc = translate(c);
+        mat3 M = Tc * Rz * S;
 
-            // Renderiza preenchimento e contorno alternando cores
-            RGB fillColor = ((rI + cI) % 2 == 0) ? orange : magenta;
-            RGB lineColor = ((rI + cI) % 2 == 0) ? purple : blue;
-            render2d(V, T, fillColor, I);
-            render2d(V, LS, lineColor, I);
-        }
+        // aplica transformação na estrela base
+        auto V = M * Q; // retorna std::vector<vec3>
+
+        // alterna cores
+        RGB fillColor = (i % 2 == 0) ? orange : magenta;
+        RGB lineColor = (i % 2 == 0) ? purple : blue;
+        render2d(V, T, fillColor, I);
+        render2d(V, LS, lineColor, I);
     }
 
     I.save("Tarefa-8/output.png");
